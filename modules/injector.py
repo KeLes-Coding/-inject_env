@@ -2,16 +2,21 @@
 import os
 import time
 import re
-from config import CALENDAR_PKG, REMOTE_DB_DIR, REMOTE_DB_PATH
+# 1. 导入新的配置变量名
+from config import PKG_CALENDAR, DB_CALENDAR_PATH
 from utils import run_adb
 from db_helper import CalendarDBHelper
+
+# 2. 重新定义旧逻辑需要的路径变量 (从 DB_CALENDAR_PATH 推导)
+REMOTE_DB_PATH = DB_CALENDAR_PATH
+REMOTE_DB_DIR = os.path.dirname(REMOTE_DB_PATH)
 
 def trigger_db_creation(device_id, logger):
     """通过 Monkey 启动并模拟点击以触发建库"""
     logger.info("触发应用建库流程...")
     
-    # 1. 启动
-    run_adb(device_id, ["shell", "monkey", "-p", CALENDAR_PKG, "-c", "android.intent.category.LAUNCHER", "1"], logger=logger)
+    # 1. 启动 (使用 PKG_CALENDAR)
+    run_adb(device_id, ["shell", "monkey", "-p", PKG_CALENDAR, "-c", "android.intent.category.LAUNCHER", "1"], logger=logger)
     time.sleep(3) 
     
     # 2. 点击右下角 FAB (根据分辨率计算坐标)
@@ -44,17 +49,17 @@ def inject_calendar(device_id, temp_dir, logger):
     os.makedirs(local_db_dir, exist_ok=True)
 
     # 1. 停止应用并授权
-    run_adb(device_id, ["shell", "am", "force-stop", CALENDAR_PKG], logger=logger)
+    run_adb(device_id, ["shell", "am", "force-stop", PKG_CALENDAR], logger=logger)
     perms = ["READ_CALENDAR", "WRITE_CALENDAR", "POST_NOTIFICATIONS"]
     for p in perms:
-        run_adb(device_id, ["shell", "pm", "grant", CALENDAR_PKG, f"android.permission.{p}"], logger=logger)
+        run_adb(device_id, ["shell", "pm", "grant", PKG_CALENDAR, f"android.permission.{p}"], logger=logger)
 
-    # 2. 检查并触发建库 (确保目标文件存在且拥有正确的 SELinux 标签)
+    # 2. 检查并触发建库
     ls_out, _ = run_adb(device_id, ["shell", f"ls {REMOTE_DB_PATH}"], logger=logger)
     if not ls_out or "No such file" in ls_out:
         logger.warning("未检测到数据库，正在初始化以获取正确的 SELinux 上下文...")
         trigger_db_creation(device_id, logger)
-        run_adb(device_id, ["shell", "am", "force-stop", CALENDAR_PKG], logger=logger)
+        run_adb(device_id, ["shell", "am", "force-stop", PKG_CALENDAR], logger=logger)
         
         # 二次检查
         time.sleep(1)
@@ -83,51 +88,41 @@ def inject_calendar(device_id, temp_dir, logger):
         logger.error("本地数据库修改失败")
         return False
 
-    # ======================================================================
     # 5. [核心修复] 使用 "覆盖写入" 而非 "删除替换"
-    # ======================================================================
     logger.info("正在注入数据 (采用流式覆盖以保留 SELinux 上下文)...")
     
-    # 5.1 推送到临时目录
     temp_remote_path = "/data/local/tmp/events_inject.db"
     run_adb(device_id, ["push", target_db, temp_remote_path], logger=logger)
     
-    # 5.2 确保目标目录的 WAL/SHM 被清理 (防止 SQLite 版本冲突)
-    # 注意：我们不删除 events.db 本身
     run_adb(device_id, ["shell", f"rm -f {REMOTE_DB_PATH}-wal {REMOTE_DB_PATH}-shm"], logger=logger)
     
-    # 5.3 使用 cat 命令覆盖内容
-    # 这会保留 events.db 原有的所有者(UID)和安全上下文(SELinux Context)
     overwrite_cmd = f"cat {temp_remote_path} > {REMOTE_DB_PATH}"
     out, err = run_adb(device_id, ["shell", overwrite_cmd], logger=logger)
     
-    # 5.4 清理临时文件
     run_adb(device_id, ["shell", f"rm {temp_remote_path}"], logger=logger)
     
     if err and "Permission denied" in err:
         logger.error(f"写入失败: {err}")
         return False
 
-    # 6. 权限兜底修复 (虽然 cat 应该保留了权限，但为了防止意外，再次修正 UID)
-    # 注意：不再依赖 restorecon 来修复文件，因为文件本身就是系统创建的合法文件
-    uid_out, _ = run_adb(device_id, ["shell", f"dumpsys package {CALENDAR_PKG} | grep userId"], logger=logger)
+    # 6. 权限兜底修复
+    uid_out, _ = run_adb(device_id, ["shell", f"dumpsys package {PKG_CALENDAR} | grep userId"], logger=logger)
     if uid_out:
         match = re.search(r"userId=(\d+)", uid_out)
         if match:
             uid = match.group(1)
-            # 只需要确保 Owner 正确，不需要 chmod 600，因为 cat 不会改变原文件的 chmod
             run_adb(device_id, ["shell", f"chown {uid}:{uid} {REMOTE_DB_PATH}"], logger=logger)
-            
-            # 为了保险，目录权限还是要维护一下
             run_adb(device_id, ["shell", f"chown -R {uid}:{uid} {REMOTE_DB_DIR}"], logger=logger)
             
     logger.info("Calendar 注入完成 (SELinux Safe Mode)。")
     return True
 
 def inject_media_files(device_id, temp_dir, logger):
-    logger.info("注入媒体文件 (占位)...")
-    # 此处放置原本的 inject_files 和 inject_photos 逻辑
-    # 仅作示例
-    p = os.path.join(temp_dir, "test.txt")
-    with open(p, "w") as f: f.write("test")
-    run_adb(device_id, ["push", p, "/sdcard/Download/"], logger=logger)
+    """
+    为了保持兼容性保留此函数，但实际的媒体文件注入
+    已经建议迁移到 inject_system.py 或其他模块中。
+    """
+    logger.info("注入媒体文件 (兼容层)...")
+    # 如果你已经在 main.py 中调用了新的 modules.inject_system，这里可以留空
+    # 或者如果你还依赖这里，请确保逻辑正确。
+    pass

@@ -4,89 +4,95 @@ import re
 import tempfile
 import concurrent.futures
 import time
-from config import ADB_PATH, CALENDAR_PKG
-from utils import setup_logger, run_adb, capture_crash_log
-from modules.injector import inject_calendar, inject_media_files
+from config import ADB_PATH, PKG_CALENDAR, PKG_TASKS, PKG_EXPENSE, PKG_MARKOR
+from utils import setup_logger, run_adb
 from modules.system import clean_background_apps, go_home
+from modules.wizards import init_markor, init_expense
+
+# 引入各注入模块
+from modules.injector import inject_calendar, inject_media_files # 假设你把旧的 calendar 逻辑留在这里或独立文件
+from modules.inject_tasks import inject_tasks_db
+from modules.inject_expense import inject_expense_db
+from modules.inject_markor import inject_markor_files
+from modules.inject_system import inject_contacts, inject_sms_msg
+from modules.wizards import init_tasks
 
 def find_devices():
-    # ... (保持原样)
     import subprocess
     res = subprocess.run([ADB_PATH, "devices"], capture_output=True, text=True)
     devices = []
     if res.stdout:
         for line in res.stdout.splitlines()[1:]:
-            if "device" in line and "emulator" in line:
+            if "device" in line: # 移除 emulator 限制，允许真机
                 match = re.match(r"(\S+)\s+device", line)
                 if match: devices.append(match.group(1))
     return devices
 
-def process_pipeline(device_id):
-    logger = setup_logger(device_id)
-    logger.info(">>> 任务开始 <<<")
+def process_device_pipeline(device_id):
+    # 1. 设置主 Logger
+    logger = setup_logger(device_id, "system")
+    logger.info(f"========== 开始处理设备 {device_id} ==========")
     
-    try:
-        run_adb(device_id, ["root"], logger=logger)
+    run_adb(device_id, ["root"], logger=logger)
+    
+    # 2. 环境清理
+    logger.info("--- 步骤 1: 清理环境 ---")
+    clean_background_apps(device_id, logger, exclude_pkgs=[])
+    
+    # 3. 初始化应用 (生成基础文件/DB)
+    logger.info("--- 步骤 2: 初始化应用 (Wizard Skipping) ---")
+    
+    # 实例化 Logger 用于各 App
+    log_cal = setup_logger(device_id, "calendar")
+    log_task = setup_logger(device_id, "tasks")
+    log_exp = setup_logger(device_id, "expense")
+    log_markor = setup_logger(device_id, "markor")
+    log_sys = setup_logger(device_id, "system_data")
+    
+    # 执行初始化点击逻辑 (Warm-up)
+    # Calendar 已有 trigger_db_creation，这里处理新的
+    init_markor(device_id, log_markor)
+    init_expense(device_id, log_exp)
+    init_tasks(device_id, log_task) # <--- 必须加上这行
+    # Tasks 通常启动即建库，或者我们可以像 Calendar 一样加一个 init_tasks
+    
+    # 4. 注入数据
+    with tempfile.TemporaryDirectory() as temp_dir:
+        logger.info("--- 步骤 3: 注入数据 ---")
         
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # --- Phase 1: 环境全量重置 ---
-            logger.info("--- Phase 1: 环境全量重置 ---")
-            clean_background_apps(device_id, logger, exclude_pkgs=[])
-            
-            # --- Phase 2: 数据注入 ---
-            logger.info("--- Phase 2: 数据注入 ---")
-            
-            if not inject_calendar(device_id, temp_dir, logger):
-                logger.error("严重错误：日历注入失败，跳过后续步骤")
-                return
-
-            inject_media_files(device_id, temp_dir, logger)
-            
-            # --- Phase 3: 验证启动与崩溃诊断 ---
-            logger.info("--- Phase 3: 验证启动 (带崩溃捕捉) ---")
-            
-            # 1. 先清空 logcat 缓冲区，确保抓到的是最新的报错
-            run_adb(device_id, ["logcat", "-c"], logger=logger)
-            
-            # 2. 启动应用
-            run_adb(device_id, ["shell", "monkey", "-p", CALENDAR_PKG, "-c", "android.intent.category.LAUNCHER", "1"], logger=logger)
-            time.sleep(3) # 给它几秒钟让它崩溃
-            
-            # 3. 检查进程是否还活着
-            pid_out, _ = run_adb(device_id, ["shell", f"pidof {CALENDAR_PKG}"], logger=logger)
-            
-            if not pid_out:
-                logger.error("❌ 检测到应用启动后进程消失 (闪退)！")
-                # 抓取日志！
-                capture_crash_log(device_id, logger)
-            else:
-                logger.info(f"✅ 应用启动正常 (PID: {pid_out})")
-
-            # --- Phase 4: 收尾清理 ---
-            logger.info("--- Phase 4: 收尾清理 ---")
-            go_home(device_id, logger)
-            
-            # 1. 清理其他所有应用 (清除数据 + 停止)
-            # 这里的 exclude 仅仅是不执行 `pm clear`，防止删掉我们刚注入的数据
-            clean_background_apps(device_id, logger, exclude_pkgs=[CALENDAR_PKG])
-            
-            # 2. 针对 Calendar Pro，执行 Force Stop (不保留在后台，但保留数据)
-            logger.info(f"停止 {CALENDAR_PKG} (保留数据)...")
-            run_adb(device_id, ["shell", "am", "force-stop", CALENDAR_PKG], logger=logger)
-            
-        logger.info(">>> 任务成功完成 <<<")
+        # Calendar
+        inject_calendar(device_id, temp_dir, log_cal) # 使用旧有逻辑
         
-    except Exception as e:
-        logger.exception("任务执行中发生未捕获异常")
+        # Tasks
+        inject_tasks_db(device_id, temp_dir, log_task)
+        
+        # Expense
+        inject_expense_db(device_id, temp_dir, log_exp)
+        
+        # Markor
+        inject_markor_files(device_id, temp_dir, log_markor)
+        
+        # System (Files, SMS, Contacts)
+        inject_media_files(device_id, temp_dir, log_sys) # PDF, txt etc.
+        inject_contacts(device_id, log_sys)
+        inject_sms_msg(device_id, log_sys)
+        
+    # 5. 收尾
+    logger.info("--- 步骤 4: 收尾 ---")
+    go_home(device_id, logger)
+    clean_background_apps(device_id, logger, exclude_pkgs=[PKG_CALENDAR, PKG_TASKS, PKG_EXPENSE, PKG_MARKOR])
+    
+    logger.info("========== 设备处理完成 ==========")
 
 def main():
-    if not os.path.exists(ADB_PATH): return
+    if not os.path.exists(ADB_PATH): 
+        print("ADB Path Error")
+        return
     devices = find_devices()
-    print(f"检测到设备: {devices}")
-    if not devices: return
+    print(f"Detected Devices: {devices}")
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(devices)) as executor:
-        executor.map(process_pipeline, devices)
+        executor.map(process_device_pipeline, devices)
 
 if __name__ == "__main__":
     main()

@@ -4,27 +4,41 @@ import logging
 import os
 import sys
 import time
-from config import ADB_PATH, LOG_DIR
+from config import ADB_PATH, LOG_ROOT_DIR
 
-def setup_logger(device_id):
-    """为每个设备创建一个独立的 Logger"""
-    logger = logging.getLogger(device_id)
+def setup_logger(device_id, app_context="main"):
+    """
+    为设备和特定 APP 上下文创建独立的 Logger
+    日志路径: logs/{device_id}/{app_context}.log
+    """
+    logger_name = f"{device_id}_{app_context}"
+    logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
+    
+    # 清除旧的 handlers 防止重复打印
     if logger.hasHandlers(): logger.handlers.clear()
 
-    log_file = os.path.join(LOG_DIR, f"{device_id}.log")
+    # 创建目录: logs/device_id/
+    device_log_dir = os.path.join(LOG_ROOT_DIR, device_id)
+    os.makedirs(device_log_dir, exist_ok=True)
+
+    log_file = os.path.join(device_log_dir, f"{app_context}.log")
+    
+    # 文件 Handler
     file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
 
+    # 控制台 Handler (仅在 main 上下文或错误时显示，避免刷屏，可根据需要调整)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter(f'[{device_id}] %(message)s')
+    console_formatter = logging.Formatter(f'[{device_id}][{app_context}] %(message)s')
     console_handler.setFormatter(console_formatter)
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+    
     return logger
 
 def run_adb(device_id, command_list, timeout=60, check=False, logger=None):
@@ -35,7 +49,6 @@ def run_adb(device_id, command_list, timeout=60, check=False, logger=None):
         
         if result.returncode != 0:
             err = result.stderr.strip()
-            # 只有在 check=True 或者 logger 存在且明确不是忽略错误时才警告
             if logger and not check and "No such file" not in err: 
                 logger.debug(f"CMD RET {result.returncode}: {err}")
             return None, err
@@ -44,23 +57,3 @@ def run_adb(device_id, command_list, timeout=60, check=False, logger=None):
     except Exception as e:
         if logger: logger.error(f"EXCEPTION: {e}")
         return None, str(e)
-
-def capture_crash_log(device_id, logger):
-    """
-    抓取该设备最近的 Logcat 错误堆栈，用于分析闪退原因
-    """
-    log_name = f"crash_{device_id}_{int(time.time())}.txt"
-    log_path = os.path.join(LOG_DIR, log_name)
-    
-    logger.warning(f"检测到潜在的闪退/崩溃，正在抓取系统日志到 {log_name} ...")
-    
-    # 抓取最近 500 行日志，重点关注 AndroidRuntime 和 target app
-    # -d: dump and exit, -t: tail lines
-    cmd = [ADB_PATH, "-s", device_id, "logcat", "-d", "-t", "800"]
-    
-    try:
-        with open(log_path, "w", encoding="utf-8") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=10)
-        logger.info(f"崩溃日志已保存: {log_path}")
-    except Exception as e:
-        logger.error(f"抓取 Logcat 失败: {e}")
