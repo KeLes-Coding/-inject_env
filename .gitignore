@@ -1,0 +1,12 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# local logs
+logs
+log
+
+# nohup
+*.out
+outputs
+
+.vscode/
