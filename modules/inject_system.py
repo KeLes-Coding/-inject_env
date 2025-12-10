@@ -1,185 +1,187 @@
+# modules/inject_system.py
 # -*- coding: utf-8 -*-
 import time
 import re
-import shlex
 from utils import run_adb
 from config import PKG_TELEPHONY
 
-# ==========================================
-# 诊断与环境修复
-# ==========================================
+# ==============================================================================
+# 配置与常量
+# ==============================================================================
 
-def get_db_path():
-    return f"/data/data/{PKG_TELEPHONY}/databases/mmssms.db"
+REMOTE_DB_DIR = f"/data/data/{PKG_TELEPHONY}/databases"
+REMOTE_DB_PATH = f"{REMOTE_DB_DIR}/mmssms.db"
+PKG_PHONE = "com.android.phone"
+PKG_MSG = "com.google.android.apps.messaging"
 
-def check_db_ready(device_id, logger):
-    """检查数据库和表是否存在"""
-    db_path = get_db_path()
-    check, _ = run_adb(device_id, ["shell", f"[ -f {db_path} ] && echo yes"], logger=logger)
-    if "yes" not in check: return False
+# ==============================================================================
+# 基础工具
+# ==============================================================================
+
+def db_exec(device_id, sql, logger):
+    """通过 ADB 在设备上直接执行 SQL"""
+    safe_sql = sql.replace('"', '\\"')
+    cmd = f"sqlite3 {REMOTE_DB_PATH} \"{safe_sql}\""
+    out, err = run_adb(device_id, ["shell", cmd], logger=logger)
+    if "Error" in (out or "") or "Error" in (err or ""):
+        logger.error(f"SQL Error: {err or out} | SQL: {sql}")
+        return False
+    return True
+
+def db_query(device_id, sql, logger):
+    safe_sql = sql.replace('"', '\\"')
+    cmd = f"sqlite3 {REMOTE_DB_PATH} \"{safe_sql}\""
+    out, _ = run_adb(device_id, ["shell", cmd], logger=logger)
+    return out.strip() if out else None
+
+def get_pid(device_id, pkg_name, logger):
+    out, _ = run_adb(device_id, ["shell", f"pidof {pkg_name}"], logger=logger)
+    if out:
+        return out.split()[0]
+    return None
+
+def kill_softly(device_id, pkg_name, logger):
+    """软杀进程，触发自动重启"""
+    pid = get_pid(device_id, pkg_name, logger)
+    if pid:
+        logger.info(f"  重启进程 {pkg_name} (PID: {pid})...")
+        run_adb(device_id, ["shell", f"kill {pid}"], logger=logger)
+
+# ==============================================================================
+# 环境健康检查与自愈
+# ==============================================================================
+
+def check_db_schema(device_id, logger):
+    out = db_query(device_id, "SELECT name FROM sqlite_master WHERE type='table';", logger)
+    if not out: return False
+    tables = out.splitlines()
+    # 只要有这几个核心表就算系统已初始化
+    required = ['sms', 'threads', 'canonical_addresses']
+    return all(t in tables for t in required)
+
+def ensure_sms_environment(device_id, logger):
+    logger.info(">>> [SMS] 检查环境健康度...")
     
-    sql = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sms';"
-    out, _ = run_adb(device_id, ["shell", f"sqlite3 {db_path} \"{sql}\""], logger=logger)
-    return out and out.strip() == "1"
-
-def ensure_telephony_env(device_id, logger):
-    """
-    环境自愈逻辑：确保 DB 存在且可用。
-    """
-    logger.info(">>> 检查 Telephony 环境 (V7) <<<")
-    if check_db_ready(device_id, logger):
-        logger.info("✅ 数据库环境正常。")
+    # 检查表结构，如果完整则直接通过
+    if check_db_schema(device_id, logger):
+        logger.info("  环境正常，准备注入。")
         return
 
-    logger.warning("⚠️ 数据库缺失或损坏，正在重建...")
-    db_dir = f"/data/data/{PKG_TELEPHONY}/databases"
+    logger.warning("  🚨 环境异常，执行强制激活流程...")
     
-    # 1. 清理残余
-    run_adb(device_id, ["shell", f"rm -rf {db_dir}"], logger=logger)
+    # 1. 再次清理 (防止坏文件)
+    run_adb(device_id, ["shell", f"rm -rf {REMOTE_DB_DIR}"], logger=logger)
+    run_adb(device_id, ["shell", f"mkdir -p {REMOTE_DB_DIR}"], logger=logger)
+    run_adb(device_id, ["shell", f"chown -R 1001:1001 {REMOTE_DB_DIR}"], logger=logger)
+    run_adb(device_id, ["shell", f"chmod 771 {REMOTE_DB_DIR}"], logger=logger)
+    run_adb(device_id, ["shell", f"restorecon -R {REMOTE_DB_DIR}"], logger=logger)
     
-    # 2. 重建目录与权限
-    run_adb(device_id, ["shell", f"mkdir -p {db_dir}"], logger=logger)
-    uid = "1001" # Default radio uid
-    uid_out, _ = run_adb(device_id, ["shell", f"dumpsys package {PKG_TELEPHONY} | grep userId"], logger=logger)
-    if uid_out:
-        m = re.search(r"userId=(\d+)", uid_out)
-        if m: uid = m.group(1)
-        
-    run_adb(device_id, ["shell", f"chown {uid}:{uid} {db_dir}"], logger=logger)
-    run_adb(device_id, ["shell", f"chmod 771 {db_dir}"], logger=logger)
-    run_adb(device_id, ["shell", f"restorecon -R {db_dir}"], logger=logger)
+    # 2. 杀进程确保释放锁
+    run_adb(device_id, ["shell", f"killall {PKG_PHONE}"], logger=logger)
     
-    # 3. 杀进程触发重建
-    run_adb(device_id, ["shell", f"am force-stop {PKG_TELEPHONY}"], logger=logger)
+    # 3. 启动 UI + 发送指令
+    logger.info("  激活系统建库...")
+    run_adb(device_id, ["shell", f"monkey -p {PKG_MSG} -c android.intent.category.LAUNCHER 1"], logger=logger)
+    time.sleep(2)
+    run_adb(device_id, ["emu", "sms", "send", "10086", "System_Init_Trigger"], logger=logger)
     
-    # 4. 激活
-    if "emulator" in device_id:
-        run_adb(device_id, ["emu", "sms", "send", "10086", "Init_Trigger"], logger=logger)
-        
-    # 5. 等待
-    for i in range(10):
+    # 4. 等待
+    for i in range(15):
         time.sleep(1)
-        if check_db_ready(device_id, logger):
-            logger.info("✅ 数据库重建完成。")
+        if check_db_schema(device_id, logger):
+            logger.info(f"  ✅ 数据库重建成功 (耗时 {i+1}s)")
             return
-    logger.error("❌ 数据库重建超时。")
-
-# ==========================================
-# 核心注入逻辑 (混合策略)
-# ==========================================
-
-def get_thread_id(device_id, address, logger):
-    """
-    从 sms 表中查询指定号码的 thread_id。
-    如果系统已经为该号码建立了会话，这里就能查到。
-    """
-    sql = f"SELECT thread_id FROM sms WHERE address='{address}' LIMIT 1;"
-    out, _ = run_adb(device_id, ["shell", f"sqlite3 {get_db_path()} \"{sql}\""], logger=logger)
-    if out and out.strip().isdigit():
-        return int(out.strip())
-    return None
-
-def prime_thread_with_emu(device_id, address, logger):
-    """
-    利用 emu sms 发送一条临时消息，强制系统创建 Thread 和 Canonical Address
-    """
-    # 注意：emu sms 可能不支持非数字号码（如 Amazon），这里做个尝试
-    logger.info(f"正在预热会话: {address}")
-    
-    # 发送临时消息 "PRIME_MSG"
-    run_adb(device_id, ["emu", "sms", "send", address, "PRIME_MSG"], logger=logger)
-    
-    # 等待系统处理 (通常很快，1-2秒)
-    for _ in range(5):
-        time.sleep(0.5)
-        tid = get_thread_id(device_id, address, logger)
-        if tid:
-            return tid
             
-    logger.warning(f"预热失败或超时: {address} (可能不支持此号码格式)")
-    return None
+    logger.error("  ❌ 重建超时，注入可能失败。")
 
-def inject_sms_msg(device_id, logger):
-    logger.info(">>> 注入 SMS (V7: Hybrid Strategy) <<<")
+# ==============================================================================
+# 数据注入
+# ==============================================================================
+
+def get_or_create_thread(device_id, addr, logger):
+    # 1. Canonical Address
+    res = db_query(device_id, f"SELECT _id FROM canonical_addresses WHERE address = '{addr}'", logger)
+    if not (res and res.isdigit()):
+        db_exec(device_id, f"INSERT INTO canonical_addresses (address) VALUES ('{addr}')", logger)
+        res = db_query(device_id, f"SELECT _id FROM canonical_addresses WHERE address = '{addr}'", logger)
     
-    # 1. 准备环境
-    msg_pkg = "com.google.android.apps.messaging" # 默认假设
-    ensure_telephony_env(device_id, logger)
+    recipient_id = res
+    if not recipient_id: return None
     
-    # 清空旧数据 (可选，防止重复运行导致堆积)
-    logger.info("清理旧短信数据...")
-    run_adb(device_id, ["shell", f"sqlite3 {get_db_path()} 'DELETE FROM sms;'"], logger=logger)
-    run_adb(device_id, ["shell", f"sqlite3 {get_db_path()} 'DELETE FROM threads;'"], logger=logger)
+    # 2. Thread
+    res = db_query(device_id, f"SELECT _id FROM threads WHERE recipient_ids = '{recipient_id}'", logger)
+    if not (res and res.isdigit()):
+        now = int(time.time() * 1000)
+        # 插入新会话，初始化 message_count=0
+        db_exec(device_id, f"INSERT INTO threads (date, message_count, recipient_ids, read, type, snippet) VALUES ({now}, 0, '{recipient_id}', 1, 0, 'init')", logger)
+        res = db_query(device_id, f"SELECT _id FROM threads WHERE recipient_ids = '{recipient_id}'", logger)
+        
+    return res
+
+def inject_sms_msg(device_id, temp_dir, logger):
+    logger.info(">>> 注入 SMS (V12.1: Full Clean) <<<")
+    ensure_sms_environment(device_id, logger)
     
-    now_ms = int(time.time() * 1000)
-    day_ms = 86400 * 1000
+    # 1. 彻底清空数据 (包括地址表，防止ID错位)
+    logger.info("  [Inject] 清空所有旧数据...")
+    db_exec(device_id, "DELETE FROM sms;", logger)
+    db_exec(device_id, "DELETE FROM threads;", logger)
+    db_exec(device_id, "DELETE FROM canonical_addresses;", logger) # 关键新增！
+    # 重置自增 ID (可选，让数据看起来更整洁)
+    db_exec(device_id, "DELETE FROM sqlite_sequence WHERE name='sms' OR name='threads' OR name='canonical_addresses';", logger)
     
-    # 格式: (Phone, Body, TimeOffset, Type)
-    # Type: 1=Inbox(收), 2=Sent(发)
+    # 2. 插入数据
     messages = [
-        ("459123", "Your Google code is 459123", 0, 1), 
-        ("13900000001", "Can we meet at 18 30?", -day_ms, 1), 
-        ("Amazon", "Your package has arrived", 0, 1), 
-        ("987654321", "Lets go to Gym on Tuesday", 0, 2), 
-        ("13900000001", "The passcode is 1234", -3600*1000, 1), 
+        ("10086", "Welcome to Android service.", 0, 1),
+        ("13800138000", "Hey, are we still on for dinner?", -3600000, 1),
+        ("95588", "Your verification code is 8848.", -10000, 1),
+        ("Mike", "I will be there in 5 mins.", 0, 1),
+        ("13800138000", "Yes, see you at 7.", 0, 2)
     ]
     
-    success_count = 0
-    db_path = get_db_path()
+    now_ms = int(time.time() * 1000)
+    count = 0
     
-    for phone, body, offset, msg_type in messages:
-        # --- 步骤 A: 获取合法的 thread_id ---
-        # 先尝试在库里找（如果是同一个号码的第二条短信）
-        tid = get_thread_id(device_id, phone, logger)
+    logger.info("  [Inject] 正在插入数据...")
+    for addr, body, offset, type_ in messages:
+        tid = get_or_create_thread(device_id, addr, logger)
+        if not tid: continue
         
-        # 如果找不到，就用 emu sms 预热
-        if not tid:
-            tid = prime_thread_with_emu(device_id, phone, logger)
-            
-        # 如果还是没有 (比如 Amazon 这种 alphanumeric 可能 emu 不支持)，
-        # 我们只能尝试手动插入，thread_id 设为 NULL 或 假装一个 ID
-        # 但通常 thread_id=NULL 会导致不显示。
-        # 这里做一个兜底：如果是发件箱(2)，或者 emu 失败，我们强行给一个自增 ID 试试？
-        # 更安全的做法：如果不显示，就放弃 thread_id (NULL)，有些旧版应用会自己扫。
-        sql_tid = tid if tid else "NULL"
-        
-        # --- 步骤 B: SQL 注入 ---
         ts = now_ms + offset
-        safe_body = body.replace("'", "''") # SQL 转义
+        safe_body = body.replace("'", "''")
         
-        # 插入语句，显式指定 thread_id
-        sql = (
+        sql_sms = (
             f"INSERT INTO sms (address, body, date, read, type, thread_id) "
-            f"VALUES ('{phone}', '{safe_body}', {ts}, 1, {msg_type}, {sql_tid});"
+            f"VALUES ('{addr}', '{safe_body}', {ts}, 1, {type_}, {tid})"
         )
         
-        cmd = f"sqlite3 {db_path} {shlex.quote(sql)}"
-        run_adb(device_id, ["shell", cmd], logger=logger)
-        
-        # 验证
-        # 简单查一下总数变没变
-        success_count += 1
-        logger.info(f"注入: {phone} | Thread: {sql_tid} | Type: {msg_type}")
-
-    # --- 步骤 C: 清理战场 ---
-    logger.info("清理预热产生的临时短信...")
-    run_adb(device_id, ["shell", f"sqlite3 {db_path} \"DELETE FROM sms WHERE body='PRIME_MSG';\""], logger=logger)
-    run_adb(device_id, ["shell", f"sqlite3 {db_path} \"DELETE FROM sms WHERE body='Init_Trigger';\""], logger=logger)
-
-    # --- 步骤 D: 刷新缓存 ---
-    # 删除 WAL 文件并重启 Provider，强制应用重新读取 DB
-    run_adb(device_id, ["shell", f"rm -f {db_path}-wal {db_path}-shm"], logger=logger)
-    run_adb(device_id, ["shell", f"am force-stop {PKG_TELEPHONY}"], logger=logger)
+        if db_exec(device_id, sql_sms, logger):
+            count += 1
+            # 实时更新会话摘要，确保 UI 显示最新消息
+            sql_update = (
+                f"UPDATE threads SET snippet = '{safe_body}', date = {ts}, message_count = message_count + 1 "
+                f"WHERE _id = {tid}"
+            )
+            db_exec(device_id, sql_update, logger)
+            
+    logger.info(f"  成功插入 {count} 条短信。")
     
-    # 重启短信 APP
-    run_adb(device_id, ["shell", f"am force-stop {msg_pkg}"], logger=logger)
+    # 3. 刷新与重启
+    logger.info("  [Inject] 刷新缓存并重启服务...")
+    run_adb(device_id, ["shell", f"rm -f {REMOTE_DB_PATH}-wal {REMOTE_DB_PATH}-shm"], logger=logger)
+    
+    # 软重启 com.android.phone (他是大哥，重启他会带动 Telephony Provider)
+    kill_softly(device_id, PKG_PHONE, logger)
+    
+    # 重启短信 App UI
+    run_adb(device_id, ["shell", f"am force-stop {PKG_MSG}"], logger=logger)
     time.sleep(1)
-    run_adb(device_id, ["shell", "monkey", "-p", msg_pkg, "-c", "android.intent.category.LAUNCHER", "1"], logger=logger)
+    run_adb(device_id, ["shell", f"monkey -p {PKG_MSG} -c android.intent.category.LAUNCHER 1"], logger=logger)
     
-    logger.info(f"全部完成。注入 {success_count} 条。")
+    logger.info("✅ SMS 注入全部完成。")
 
 # ==========================================
-# (保留) 联系人注入部分 - 不变
+# 联系人注入 (保持不变)
 # ==========================================
 def get_last_insert_id(device_id, uri, logger):
     cmd = f'content query --uri {uri} --projection _id'
@@ -187,13 +189,17 @@ def get_last_insert_id(device_id, uri, logger):
     if not out: return None
     ids = []
     for line in out.splitlines():
-        match = re.search(r"_id=(\d+)", line)
-        if match: ids.append(int(match.group(1)))
+        m = re.search(r"_id=(\d+)", line)
+        if m: ids.append(int(m.group(1)))
     if ids: return str(max(ids))
     return None
 
 def inject_contacts(device_id, logger):
-    logger.info(">>> 注入系统联系人 (Local Mode) <<<")
+    logger.info(">>> 注入系统联系人 (Fixed) <<<")
+    # 清理旧数据，确保纯净 (可选，如果 Step 1 已经重置了这里其实是空的)
+    # run_adb(device_id, ["shell", "pm clear com.android.providers.contacts"], logger=logger) # 注意：这会杀进程，慎用
+    
+    run_adb(device_id, ["shell", "content query --uri content://com.android.contacts/raw_contacts --projection _id"], logger=logger)
     contacts = [("Emergency", "110"), ("Zheng Zihan", "13912345678"), ("Bob", "987654321")]
     for name, phone in contacts:
         cmd_raw = 'content insert --uri content://com.android.contacts/raw_contacts --bind account_name:n: --bind account_type:n:'
@@ -202,16 +208,17 @@ def inject_contacts(device_id, logger):
         if out:
             match = re.search(r"_id=(\d+)", out)
             if match: raw_id = match.group(1)
-            elif "Row" in out and "id=" in out: 
-                 match = re.search(r"id=(\d+)", out)
-                 if match: raw_id = match.group(1)
         if not raw_id:
             raw_id = get_last_insert_id(device_id, "content://com.android.contacts/raw_contacts", logger)
         if not raw_id: continue
-        try:
-            cmd_name = f'content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:{raw_id} --bind mimetype:s:vnd.android.cursor.item/name --bind data1:s:"{name}"'
-            run_adb(device_id, ["shell", cmd_name], logger=logger)
-            cmd_phone = f'content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:{raw_id} --bind mimetype:s:vnd.android.cursor.item/phone_v2 --bind data1:s:"{phone}"'
-            run_adb(device_id, ["shell", cmd_phone], logger=logger)
-            logger.info(f"联系人 {name} 注入成功 (ID: {raw_id})")
-        except Exception: pass
+        
+        cmd_name = (f'content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:{raw_id} --bind mimetype:s:vnd.android.cursor.item/name --bind data1:s:"{name}"')
+        run_adb(device_id, ["shell", cmd_name], logger=logger)
+        
+        cmd_phone = (f'content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:{raw_id} --bind mimetype:s:vnd.android.cursor.item/phone_v2 --bind data1:s:"{phone}"')
+        run_adb(device_id, ["shell", cmd_phone], logger=logger)
+        logger.info(f"  已注入: {name} (ID: {raw_id})")
+    
+    # 重启联系人存储进程以刷新
+    kill_softly(device_id, "android.process.acore", logger)
+    run_adb(device_id, ["shell", "am force-stop com.android.contacts"], logger=logger)
