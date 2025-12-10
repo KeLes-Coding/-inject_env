@@ -1,0 +1,19 @@
+[
+  {
+    "name": "Emergency",
+    "phone": "110"
+  },
+  {
+    "name": "Zheng Zihan",
+    "phone": "13912345678"
+  },
+  {
+    "name": "Bob",
+    "phone": "987654321",
+    "__comment": "Used for cross-app search (Contact -> SMS)"
+  },
+  {
+    "name": "Alice",
+    "phone": "13800138000"
+  }
+]

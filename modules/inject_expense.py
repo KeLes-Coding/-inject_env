@@ -3,7 +3,7 @@ import os
 import sqlite3
 import time
 import shutil
-from utils import run_adb
+from utils import run_adb, load_json_data
 from config import PKG_EXPENSE, DB_EXPENSE_PATH
 from modules.wizards import init_expense
 
@@ -24,6 +24,12 @@ def verify_table_exists(db_path, table_name, logger):
 def inject_expense_db(device_id, temp_dir, logger):
     logger.info(">>> 注入 Expense (Pro Expense) 数据 <<<")
     
+    # 加载配置
+    expenses_data = load_json_data("expense.json")
+    if not expenses_data:
+        logger.error("无 Expense 数据，跳过注入。")
+        return False
+
     local_db_dir = os.path.join(temp_dir, f"expense_dir_{device_id}")
     if os.path.exists(local_db_dir): shutil.rmtree(local_db_dir)
     os.makedirs(local_db_dir, exist_ok=True)
@@ -63,21 +69,15 @@ def inject_expense_db(device_id, temp_dir, logger):
         cursor.execute("PRAGMA journal_mode=DELETE;")
         cursor.execute("DELETE FROM expense")
         
-        ts_oct = 1759276800000 
-        ts_nov = 1761955200000 
-        
-        # 定义数据 (5个元素)
-        expenses_data = [
-            ("Coffee", 550, 1, "Nice coffee", ts_oct),
-            ("Uber Ride", 5000, 2, "To Office", ts_oct + 86400000), 
-            ("Fancy Dinner", 12000, 1, "Treat", ts_nov),
-        ]
-        
-        # SQL 需要 6 个参数 (created_date, modified_date)
         sql = "INSERT INTO expense (name, amount, category, note, created_date, modified_date) VALUES (?, ?, ?, ?, ?, ?)"
         
-        for name, amt, cat, note, date in expenses_data:
-            # 修正：手动构造 6 元素元组，将 date 重复一次作为 modified_date
+        for item in expenses_data:
+            name = item.get("name")
+            amt = item.get("amount")
+            cat = item.get("category")
+            note = item.get("note", "")
+            date = item.get("date")
+            
             cursor.execute(sql, (name, amt, cat, note, date, date))
             
         conn.commit()
@@ -97,7 +97,7 @@ def inject_expense_db(device_id, temp_dir, logger):
                 uid = m.group(1)
                 run_adb(device_id, ["shell", f"chown {uid}:{uid} {DB_EXPENSE_PATH}"], logger=logger)
                 
-        logger.info("Expense 数据注入完成。")
+        logger.info(f"Expense 数据注入完成 ({len(expenses_data)} 条)。")
         return True
         
     except Exception as e:

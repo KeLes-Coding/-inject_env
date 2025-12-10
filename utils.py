@@ -4,7 +4,31 @@ import logging
 import os
 import sys
 import time
+import json
 from config import ADB_PATH, LOG_ROOT_DIR
+
+def load_json_data(filename):
+    """从 data/ 目录加载 JSON 配置文件"""
+    # 假设 data 目录在项目根目录
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 如果 utils.py 在根目录，则直接用；如果在子目录可能需要调整，这里假设运行目录是根目录
+    # 更稳妥的方式是假设运行入口 main.py 在根目录
+    json_path = os.path.join("data", filename)
+    
+    if not os.path.exists(json_path):
+        # 尝试回退一级 (如果 utils.py 被当做模块导入)
+        json_path = os.path.join("..", "data", filename)
+        
+    if not os.path.exists(json_path):
+        logging.error(f"配置文件未找到: {json_path}")
+        return []
+
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"读取配置失败 {filename}: {e}")
+        return []
 
 def setup_logger(device_id, app_context="main"):
     """

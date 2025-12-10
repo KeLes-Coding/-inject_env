@@ -3,7 +3,7 @@ import os
 import sqlite3
 import time
 import shutil
-from utils import run_adb
+from utils import run_adb, load_json_data
 from config import PKG_TASKS, DB_TASKS_PATH
 from modules.wizards import init_tasks
 
@@ -22,6 +22,11 @@ def verify_table_exists(db_path, table_name, logger):
 def inject_tasks_db(device_id, temp_dir, logger):
     logger.info(">>> 注入 Tasks (Org.Tasks) 数据 <<<")
     
+    tasks_data = load_json_data("tasks.json")
+    if not tasks_data:
+        logger.error("无 Tasks 数据，跳过注入。")
+        return False
+
     local_db_dir = os.path.join(temp_dir, f"tasks_dir_{device_id}")
     if os.path.exists(local_db_dir): shutil.rmtree(local_db_dir)
     os.makedirs(local_db_dir, exist_ok=True)
@@ -62,23 +67,17 @@ def inject_tasks_db(device_id, temp_dir, logger):
         cursor.execute("DELETE FROM tasks")
         
         now_ms = int(time.time() * 1000)
-        tasks_data = [
-            ("Buy Groceries", 2, 0, "", 0), 
-            ("Send Christmas Cards", 0, 1766620800000, "", 0),
-            ("Car Service", 0, 0, "Mileage: 50000km", 0),
-            ("Submit Final Report", 0, 1761782400000, "", 0),
-            ("Old Task 1", 0, 0, "", now_ms - 86400000),
-            ("Old Task 2", 0, 0, "", now_ms - 172800000),
-            ("Old Task 3", 0, 0, "", now_ms - 259200000),
-        ]
         
-        # [修复] 添加了 deleted 字段 (在 completed 后面)
         sql = """INSERT INTO tasks (title, importance, dueDate, notes, completed, deleted, created, modified, hideUntil, estimatedSeconds, elapsedSeconds, timerStart, notificationFlags, lastNotified, recurrence, repeat_from, collapsed, parent, "order", read_only) VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0, 0, 0, 0, 0, 0, '', 0, 0, 0, 0, 0)"""
         
         for item in tasks_data:
-            # item 结构: title, importance, dueDate, notes, completed
-            # 参数顺序: title, imp, due, note, completed, created, modified
-            cursor.execute(sql, (item[0], item[1], item[2], item[3], item[4], now_ms, now_ms))
+            title = item.get("title")
+            imp = item.get("importance", 0)
+            due = item.get("dueDate", 0)
+            notes = item.get("notes", "")
+            completed = item.get("completed", 0)
+            
+            cursor.execute(sql, (title, imp, due, notes, completed, now_ms, now_ms))
             
         conn.commit()
         conn.close()
@@ -97,7 +96,7 @@ def inject_tasks_db(device_id, temp_dir, logger):
                 uid = m.group(1)
                 run_adb(device_id, ["shell", f"chown {uid}:{uid} {DB_TASKS_PATH}"], logger=logger)
 
-        logger.info("Tasks 数据注入完成。")
+        logger.info(f"Tasks 数据注入完成 ({len(tasks_data)} 条)。")
         return True
 
     except Exception as e:

@@ -1,0 +1,47 @@
+[
+  {
+    "source": "documents/budget_2025.pdf",
+    "remote_path": "/sdcard/Documents/budget_2025.pdf",
+    "metadata": { "touch_time": "202510011200" }
+  },
+  {
+    "source": "documents/secret.txt",
+    "remote_path": "/sdcard/Documents/secret.txt",
+    "metadata": {}
+  },
+  {
+    "source": "documents/encrypted_note.txt",
+    "remote_path": "/sdcard/Documents/encrypted_note.txt",
+    "metadata": {}
+  },
+  {
+    "source": "downloads/installer.zip",
+    "remote_path": "/sdcard/Download/installer.zip",
+    "metadata": { "size_mb": 5 }
+  },
+  {
+    "source": "markor/shopping_list.md",
+    "remote_path": "/sdcard/Documents/Markor/shopping_list.md",
+    "metadata": {}
+  },
+  {
+    "source": "markor/meeting_minutes.txt",
+    "remote_path": "/sdcard/Documents/Markor/meeting_minutes.txt",
+    "metadata": {}
+  },
+  {
+    "source": "markor/Budget.md",
+    "remote_path": "/sdcard/Documents/Markor/Budget.md",
+    "metadata": {}
+  },
+  {
+    "source": "pictures/passport_photo.jpg",
+    "remote_path": "/sdcard/Pictures/passport_photo.jpg",
+    "metadata": { "touch_time": "202501010900" }
+  },
+  {
+    "source": "pictures/invoice_001.jpg",
+    "remote_path": "/sdcard/Pictures/invoice_001.jpg",
+    "metadata": {}
+  }
+]

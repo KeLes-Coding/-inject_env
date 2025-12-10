@@ -1,0 +1,54 @@
+[
+  {
+    "title": "Buy Groceries",
+    "importance": 2, 
+    "dueDate": 0,
+    "notes": "",
+    "completed": 0,
+    "__comment": "Priority 2 = High"
+  },
+  {
+    "title": "Send Christmas Cards",
+    "importance": 0,
+    "dueDate": 1766620800000,
+    "notes": "",
+    "completed": 0,
+    "__comment": "Due 2025-12-25"
+  },
+  {
+    "title": "Car Service",
+    "importance": 0,
+    "dueDate": 0,
+    "notes": "Mileage: 50000km",
+    "completed": 0
+  },
+  {
+    "title": "Submit Final Report",
+    "importance": 0,
+    "dueDate": 1761360000000,
+    "notes": "",
+    "completed": 0,
+    "__comment": "Due 2025-10-25 (Matches Calendar 'Project Deadline')"
+  },
+  {
+    "title": "Old Task 1",
+    "importance": 0,
+    "dueDate": 0,
+    "notes": "",
+    "completed": 1
+  },
+  {
+    "title": "Old Task 2",
+    "importance": 0,
+    "dueDate": 0,
+    "notes": "",
+    "completed": 1
+  },
+  {
+    "title": "Old Task 3",
+    "importance": 0,
+    "dueDate": 0,
+    "notes": "",
+    "completed": 1
+  }
+]

@@ -1,0 +1,47 @@
+[
+  {
+    "address": "Google",
+    "body": "Your Google verification code is 459123.",
+    "date_offset": 0,
+    "type": 1,
+    "read": 0,
+    "__comment": "Received Today (offset 0)"
+  },
+  {
+    "address": "Alice",
+    "body": "Hey, are we still on for dinner?",
+    "date_offset": -86400000,
+    "type": 1,
+    "read": 1
+  },
+  {
+    "address": "Alice",
+    "body": "Can we meet at 18:30?",
+    "date_offset": -86340000,
+    "type": 1,
+    "read": 1,
+    "__comment": "Last message time check: 18:30"
+  },
+  {
+    "address": "Amazon",
+    "body": "Your package has arrived.",
+    "date_offset": -3600000,
+    "type": 1,
+    "read": 0
+  },
+  {
+    "address": "Bob",
+    "body": "Are you free for the Gym on Tuesday?",
+    "date_offset": -172800000,
+    "type": 1,
+    "read": 1
+  },
+  {
+    "address": "Alice",
+    "body": "The passcode for the note is 1234.",
+    "date_offset": -60000,
+    "type": 1,
+    "read": 1,
+    "__comment": "Links to encrypted_note.txt task"
+  }
+]

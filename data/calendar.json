@@ -1,0 +1,35 @@
+[
+  {
+    "title": "Project Review",
+    "description": "Review Phase 1",
+    "location": "Office",
+    "start_ts": 1760536800, 
+    "end_ts": 1760540400,
+    "__comment": "2025-10-15 14:00:00 (Assuming UTC+8 for '14:00' answer)"
+  },
+  {
+    "title": "Dentist Appointment",
+    "description": "Checkup",
+    "location": "Clinic",
+    "start_ts": 1762828800,
+    "end_ts": 1762832400,
+    "__comment": "2025-11-11"
+  },
+  {
+    "title": "Dad's Birthday",
+    "description": "Buy gift",
+    "location": "Home",
+    "start_ts": 1747708800,
+    "end_ts": 1747795200,
+    "all_day": true,
+    "__comment": "2025-05-20"
+  },
+  {
+    "title": "Project Deadline",
+    "description": "Final Submission",
+    "location": "Office",
+    "start_ts": 1761360000,
+    "end_ts": 1761363600,
+    "__comment": "2025-10-25 (Matches 'Submit Final Report' due date in Tasks)"
+  }
+]

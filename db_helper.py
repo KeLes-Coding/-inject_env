@@ -7,7 +7,7 @@ class CalendarDBHelper:
         self.db_path = db_path
         self.logger = logger
 
-    def inject_data(self):
+    def inject_data(self, events_list_data):
         conn = None
         try:
             conn = sqlite3.connect(self.db_path)
@@ -91,16 +91,16 @@ class CalendarDBHelper:
             # 先清空旧数据
             cursor.execute("DELETE FROM events")
 
-            for start_ts, title, desc, loc in events_list:
-                # 构建这一行的完整数据字典
+            # 遍历 JSON 数据
+            for item in events_list_data:
                 row_data = base_data_map.copy()
-                row_data['start_ts'] = start_ts
-                row_data['end_ts'] = start_ts + 3600
-                row_data['title'] = title
-                row_data['description'] = desc
-                row_data['location'] = loc
+                # 覆盖来自 JSON 的值
+                row_data.update(item)
                 
-                # 筛选：只保留数据库中存在的 key
+                # 如果 JSON 没有 start_ts/end_ts，可能需要默认值
+                if 'start_ts' not in row_data: row_data['start_ts'] = current_time
+                if 'end_ts' not in row_data: row_data['end_ts'] = row_data['start_ts'] + 3600
+                
                 final_keys = [k for k in row_data.keys() if k in valid_columns_in_db]
                 final_values = [row_data[k] for k in final_keys]
                 
@@ -110,7 +110,6 @@ class CalendarDBHelper:
                 cursor.execute(sql, final_values)
 
             conn.commit()
-            self.logger.info(f"成功注入 {len(events_list)} 条事件 (动态匹配列)")
             return True
 
         except Exception as e:

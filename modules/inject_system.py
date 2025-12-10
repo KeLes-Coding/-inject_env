@@ -4,6 +4,7 @@ import time
 import re
 from utils import run_adb
 from config import PKG_TELEPHONY
+from utils import run_adb, load_json_data # 导入 load_json_data
 
 # ==============================================================================
 # 配置与常量
@@ -144,28 +145,28 @@ def verify_data(device_id, logger):
     return False
 
 def inject_sms_msg(device_id, temp_dir, logger):
-    logger.info(">>> 注入 SMS (V12.4: Verified & Cached Cleared) <<<")
+    logger.info(">>> 注入 SMS (V12.4) <<<")
     ensure_sms_environment(device_id, logger)
     
-    # 1. 清空旧数据 (不删 canonical_addresses)
+    sms_data = load_json_data("sms.json")
+    if not sms_data:
+        logger.error("无 SMS 数据配置。")
+        return
+
     logger.info("  [Inject] 清空短信与会话表...")
     db_exec(device_id, "DELETE FROM sms;", logger)
     db_exec(device_id, "DELETE FROM threads;", logger)
-    
-    # 2. 插入数据
-    messages = [
-        ("10086", "Welcome to Android service.", 0, 1),
-        ("13800138000", "Hey, are we still on for dinner?", -3600000, 1),
-        ("95588", "Your verification code is 8848.", -10000, 1),
-        ("Mike", "I will be there in 5 mins.", 0, 1),
-        ("13800138000", "Yes, see you at 7.", 0, 2)
-    ]
     
     now_ms = int(time.time() * 1000)
     count = 0
     
     logger.info("  [Inject] 正在插入数据...")
-    for addr, body, offset, type_ in messages:
+    for item in sms_data:
+        addr = item.get("address")
+        body = item.get("body")
+        offset = item.get("date_offset", 0)
+        type_ = item.get("type", 1)
+        
         tid = get_or_create_thread(device_id, addr, logger)
         if not tid: continue
         
@@ -179,7 +180,6 @@ def inject_sms_msg(device_id, temp_dir, logger):
         
         if db_exec(device_id, sql_sms, logger):
             count += 1
-            # 更新摘要
             sql_update = (
                 f"UPDATE threads SET snippet = '{safe_body}', date = {ts}, message_count = message_count + 1 "
                 f"WHERE _id = {tid}"

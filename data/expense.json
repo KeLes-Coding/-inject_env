@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Coffee",
+    "amount": 5.50,
+    "category": 1,
+    "note": "Nice coffee",
+    "date": 1759276800000,
+    "__comment": "2025-10-01, Category 1 typically Food/Drink"
+  },
+  {
+    "name": "Uber Ride",
+    "amount": 50.00,
+    "category": 2,
+    "note": "To Office",
+    "date": 1759363200000,
+    "__comment": "Category 2 = Transport (Must be < 100 to answer 'No' to budget exceed query)"
+  },
+  {
+    "name": "Fancy Dinner",
+    "amount": 120.00,
+    "category": 1,
+    "note": "Treat",
+    "date": 1761955200000,
+    "__comment": "November 2025, Highest expense"
+  }
+]
