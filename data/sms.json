@@ -4,8 +4,7 @@
     "body": "Your Google verification code is 459123.",
     "date_offset": 0,
     "type": 1,
-    "read": 0,
-    "__comment": "Received Today (offset 0)"
+    "read": 0
   },
   {
     "address": "Alice",
@@ -19,12 +18,11 @@
     "body": "Can we meet at 18:30?",
     "date_offset": -86340000,
     "type": 1,
-    "read": 1,
-    "__comment": "Last message time check: 18:30"
+    "read": 1
   },
   {
     "address": "Amazon",
-    "body": "Your package has arrived.",
+    "body": "Your package has arrived. Shipping fee was 15.",
     "date_offset": -3600000,
     "type": 1,
     "read": 0
@@ -41,7 +39,13 @@
     "body": "The passcode for the note is 1234.",
     "date_offset": -60000,
     "type": 1,
-    "read": 1,
-    "__comment": "Links to encrypted_note.txt task"
+    "read": 1
+  },
+  {
+    "address": "David",
+    "body": "My mobile number changed, please update contacts.",
+    "date_offset": -500000,
+    "type": 1,
+    "read": 1
   }
 ]

@@ -74,11 +74,19 @@ def inject_expense_db(device_id, temp_dir, logger):
         for item in expenses_data:
             name = item.get("name")
             amt = item.get("amount")
+
+            # [Fix] 转换金额为分 (Cents)，防止APP显示为 1/100
+            # 假设 APP 逻辑是存储 100 代表 1.00 元
+            try:
+                amt_cents = int(float(amt) * 100)
+            except (ValueError, TypeError):
+                amt_cents = 0
+
             cat = item.get("category")
             note = item.get("note", "")
             date = item.get("date")
             
-            cursor.execute(sql, (name, amt, cat, note, date, date))
+            cursor.execute(sql, (name, amt_cents, cat, note, date, date))
             
         conn.commit()
         conn.close()

@@ -1,5 +1,5 @@
 # Shopping List
-- [ ] Eggs
-- [ ] Bread
-- [ ] Milk
-- [ ] Butter
+- [ ] Eggs: 15
+- [ ] Bread: 10
+- [ ] Milk: 12
+- [ ] Butter: 20

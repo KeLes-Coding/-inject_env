@@ -236,8 +236,24 @@ def inject_contacts(device_id, logger):
     logger.info(">>> 注入系统联系人 (Fixed) <<<")
     
     run_adb(device_id, ["shell", "content query --uri content://com.android.contacts/raw_contacts --projection _id"], logger=logger)
-    contacts = [("Emergency", "110"), ("Zheng Zihan", "13912345678"), ("Bob", "987654321")]
-    for name, phone in contacts:
+    
+    # [修改] 改为从 JSON 文件读取
+    contacts_data = load_json_data("contacts.json")
+    if not contacts_data:
+        logger.warning("未读取到 contacts.json，使用硬编码默认值")
+        contacts_data = [
+            {"name": "Emergency", "phone": "110"}, 
+            {"name": "Zheng Zihan", "phone": "13912345678"}, 
+            {"name": "Bob", "phone": "987654321"}
+        ]
+        
+    for item in contacts_data:
+        name = item.get("name")
+        phone = item.get("phone")
+        
+        if not name or not phone:
+            continue
+            
         cmd_raw = 'content insert --uri content://com.android.contacts/raw_contacts --bind account_name:n: --bind account_type:n:'
         out, _ = run_adb(device_id, ["shell", cmd_raw], logger=logger)
         raw_id = None
